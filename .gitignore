@@ -23,6 +23,7 @@ temp/
 test_*.py
 scratch*.py
 playground*.py
+config_back/
 
 # 个人密钥、token、cookie、数据库文件（严禁提交）
 *.key
@@ -54,3 +55,5 @@ Thumbs.db
 # uv
 uv.lock
 copilot-instructions.md
+
+

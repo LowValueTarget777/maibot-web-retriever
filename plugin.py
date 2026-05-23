@@ -44,6 +44,21 @@ class PluginSectionConfig(PluginConfigBase):
 
     enabled: bool = Field(default=True, description="是否启用插件")
     config_version: str = Field(default="1.0.0", description="配置版本")
+    show_progress: bool = Field(
+        default=True,
+        description='搜索/抓取时是否发送进度提示（"正在搜索..."等）',
+        json_schema_extra={"label": "显示进度提示"},
+    )
+    show_references: bool = Field(
+        default=True,
+        description="是否将网页 URL 作为参考来源提供给 AI",
+        json_schema_extra={"label": "AI 参考来源 URL"},
+    )
+    send_references_to_user: bool = Field(
+        default=True,
+        description="是否在回复末尾向用户发送参考来源链接",
+        json_schema_extra={"label": "向用户发送参考链接"},
+    )
 
 
 class SearchConfig(PluginConfigBase):
@@ -112,7 +127,7 @@ class FetchConfig(PluginConfigBase):
 
     crawl4ai_base_url: str = Field(
         default="http://192.168.1.9:11235",
-        description="Crawl4AI REST API 地址（留空则尝试本地 SDK）",
+        description="Crawl4AI REST API 地址（Docker 部署自带浏览器）",
         json_schema_extra={"label": "Crawl4AI 地址"},
     )
     fetch_timeout: int = Field(
@@ -215,6 +230,7 @@ class WebRetrieverPlugin(MaiBotPlugin):
         # 记录最近一次搜索/抓取内容，用于自动注入 Reply 上下文
         self._last_search_content: str = ""
         self._last_fetch_content: str = ""
+        self._last_reference_urls: list[dict[str, str]] = []
 
         self.ctx.logger.info("网页检索插件已加载")
 
@@ -318,7 +334,7 @@ class WebRetrieverPlugin(MaiBotPlugin):
             cat_list = self.config.search.get_enabled_categories()
 
         # 1. 查缓存
-        cache_key = make_search_cache_key(query, ",".join(cat_list), max_results)
+        cache_key = make_search_cache_key(query, ",".join(cat_list), max_results, self.config.plugin.show_references)
         if self.config.cache.enable_cache:
             cached = self._cache.get(cache_key)
             if cached is not None:
@@ -326,7 +342,8 @@ class WebRetrieverPlugin(MaiBotPlugin):
                 return cached
 
         # 2. 发送进度提示
-        await self.ctx.send.text(f"🔍 正在搜索：{query}...", stream_id)
+        if self.config.plugin.show_progress:
+            await self.ctx.send.text(f"🔍 正在搜索：{query}...", stream_id)
 
         # 3. 执行搜索
         response = await self._searxng.search(
@@ -346,10 +363,14 @@ class WebRetrieverPlugin(MaiBotPlugin):
             return search_to_llm_dict(response)
 
         # 5. 写缓存 & 记录搜索内容
-        result_dict = search_to_llm_dict(response)
+        result_dict = search_to_llm_dict(response, self.config.plugin.show_references)
         if self.config.cache.enable_cache:
             self._cache.set(cache_key, result_dict, self.config.cache.cache_ttl)
         self._last_search_content = result_dict.get("content", "")
+        if self.config.plugin.send_references_to_user:
+            self._last_reference_urls = [
+                {"title": r.title, "url": r.url} for r in response.results
+            ]
 
         return result_dict
 
@@ -393,7 +414,7 @@ class WebRetrieverPlugin(MaiBotPlugin):
             return fetch_error_dict(url, "URL 必须以 http:// 或 https:// 开头")
 
         # 2. 查缓存
-        cache_key = make_fetch_cache_key(url)
+        cache_key = make_fetch_cache_key(url, self.config.plugin.show_references)
         if self.config.cache.enable_cache:
             cached = self._cache.get(cache_key)
             if cached is not None:
@@ -401,17 +422,22 @@ class WebRetrieverPlugin(MaiBotPlugin):
                 return cached
 
         # 3. 发送进度提示
-        await self.ctx.send.text(f"📄 正在抓取网页：{url}...", stream_id)
+        if self.config.plugin.show_progress:
+            await self.ctx.send.text(f"📄 正在抓取网页：{url}...", stream_id)
 
         # 4. 执行抓取
         result = await self._crawler.fetch(url)
 
         # 5. 写缓存 & 返回
-        result_dict = fetch_to_llm_dict(result)
+        result_dict = fetch_to_llm_dict(result, self.config.plugin.show_references)
         if self.config.cache.enable_cache and result.error_message == "":
             self._cache.set(cache_key, result_dict, self.config.cache.cache_ttl)
         if result.error_message == "":
             self._last_fetch_content = result_dict.get("content", "")
+            if self.config.plugin.send_references_to_user:
+                self._last_reference_urls = [
+                    {"title": result.title, "url": result.url}
+                ]
 
         return result_dict
 
@@ -498,17 +524,13 @@ class WebRetrieverPlugin(MaiBotPlugin):
         mode=HookMode.BLOCKING,
     )
     async def inject_search_into_reply(self, **kwargs: Any) -> dict[str, Any]:
-        """LLM 调用 reply 时，自动将最近搜索/抓取结果注入 reference_info。"""
+        """注入搜索结果到 AI 上下文，并可选地向用户发送参考链接。"""
         search_content = self._last_search_content
         fetch_content = self._last_fetch_content
+        ref_urls = self._last_reference_urls
         self._last_search_content = ""
         self._last_fetch_content = ""
-
-        content = search_content or fetch_content
-        if not content:
-            return {"modified_kwargs": kwargs}
-
-        tag = "[搜索结果]" if search_content else "[网页内容]"
+        self._last_reference_urls = []
 
         tool_calls = kwargs.get("tool_calls")
         if not isinstance(tool_calls, list):
@@ -525,14 +547,36 @@ class WebRetrieverPlugin(MaiBotPlugin):
             args = func.get("arguments", {})
             if not isinstance(args, dict):
                 continue
-            existing = str(args.get("reference_info", "") or "").strip()
-            injection = f"{tag}\n{content}"
-            args["reference_info"] = (
-                f"{existing}\n{injection}" if existing else injection
-            )
+
+            # 1. 注入搜索结果到 AI 参考上下文
+            content = search_content or fetch_content
+            if content:
+                tag = "[搜索结果]" if search_content else "[网页内容]"
+                existing = str(args.get("reference_info", "") or "").strip()
+                injection = f"{tag}\n{content}\n（以上信息可作为回答参考）"
+                args["reference_info"] = (
+                    f"{existing}\n{injection}" if existing else injection
+                )
+                self.ctx.logger.info("搜索结果已注入 Reply 上下文")
+
+            # 2. 向用户发送参考来源链接
+            if self.config.plugin.send_references_to_user and ref_urls:
+                seen: set[str] = set()
+                lines = ["", "---", "📎 **参考来源**"]
+                for r in ref_urls:
+                    if r["url"] not in seen:
+                        seen.add(r["url"])
+                        title = r["title"].replace("\n", " ").strip()[:80]
+                        lines.append(f"- [{title}]({r['url']})")
+                ref_text = "\n".join(lines)
+
+                msg_key = "message" if "message" in args else "content"
+                if msg_key in args:
+                    args[msg_key] = str(args[msg_key]) + ref_text
+                self.ctx.logger.info("参考链接已追加到回复末尾")
+
             func["arguments"] = args
             tc["function"] = func
-            self.ctx.logger.info("搜索结果已注入 Reply 上下文")
             break
 
         return {"modified_kwargs": kwargs}

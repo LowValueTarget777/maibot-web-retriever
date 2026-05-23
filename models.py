@@ -44,7 +44,7 @@ class CacheEntry:
     ttl: int  # 秒
 
 
-def search_to_llm_dict(response: SearchResponse) -> dict:
+def search_to_llm_dict(response: SearchResponse, show_references: bool = True) -> dict:
     """将搜索响应序列化为 LLM 友好的格式"""
     lines = [
         f'搜索「{response.query}」共找到 {response.total_count} 条结果，'
@@ -54,9 +54,9 @@ def search_to_llm_dict(response: SearchResponse) -> dict:
 
     for i, r in enumerate(response.results, 1):
         lines.append(f"[{i}] {r.title}")
-        lines.append(f"    URL: {r.url}")
+        if show_references:
+            lines.append(f"    URL: {r.url}")
         if r.snippet:
-            # 截取合理长度的摘要，保持句子完整
             snippet = r.snippet.strip().replace("\n", " ")
             if len(snippet) > 180:
                 snippet = snippet[:177] + "..."
@@ -68,10 +68,10 @@ def search_to_llm_dict(response: SearchResponse) -> dict:
         lines.append(f"⚠️ 以下搜索引擎暂时不可用: {', '.join(failed)}")
         lines.append("")
 
-    lines.append(
-        "💡 如果需要获取某条结果的完整内容，请使用 web_fetch 工具"
-        "抓取对应的 URL。"
-    )
+    if show_references:
+        lines.append(
+            "以上信息来自网络搜索。如需了解详情，可使用 web_fetch 打开对应链接。"
+        )
 
     return {
         "success": True,
@@ -102,23 +102,20 @@ def search_error_dict(query: str, message: str) -> dict:
     }
 
 
-def fetch_to_llm_dict(result: FetchResult) -> dict:
+def fetch_to_llm_dict(result: FetchResult, show_references: bool = True) -> dict:
     """将抓取结果序列化为 LLM 友好的格式"""
     if result.error_message:
         return fetch_error_dict(result.url, result.error_message)
 
-    # 构建带来源标注的内容
-    header = (
-        f"> 📄 **来源**: {result.url}\n"
-        f"> 📌 **标题**: {result.title}\n"
-        f"> ✅ **状态**: HTTP {result.status_code}\n"
-        f"\n---\n\n"
-    )
-
-    footer = (
-        f"\n\n---\n"
-        f"📎 以上内容抓取自 {result.url}"
-    )
+    header = footer = ""
+    if show_references:
+        header = (
+            f"> 📄 **来源**: {result.url}\n"
+            f"> 📌 **标题**: {result.title}\n"
+            f"> ✅ **状态**: HTTP {result.status_code}\n"
+            f"\n---\n\n"
+        )
+        footer = f"\n\n---\n📎 本文来自 {result.url}"
 
     full_content = header + result.markdown_content + footer
 
