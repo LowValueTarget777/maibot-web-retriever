@@ -12,7 +12,7 @@ _plugin_dir = _os.path.dirname(_os.path.abspath(__file__))
 if _plugin_dir not in _sys.path:
     _sys.path.insert(0, _plugin_dir)
 
-from typing import Any
+from typing import Any, Literal
 
 from maibot_sdk import Command, Field, HookHandler, MaiBotPlugin, PluginConfigBase, Tool
 from maibot_sdk.types import HookMode, ToolParameterInfo, ToolParamType
@@ -102,7 +102,7 @@ class SearchConfig(PluginConfigBase):
         description="搜索超时（秒）",
         json_schema_extra={"label": "搜索超时"},
     )
-    safe_search: int = Field(
+    safe_search: Literal[0, 1, 2] = Field(
         default=0,
         description="安全搜索: 0=关闭, 1=中等, 2=严格",
         json_schema_extra={"label": "安全搜索"},
@@ -140,9 +140,9 @@ class FetchConfig(PluginConfigBase):
         description="返回内容最大字符数（超出截断）",
         json_schema_extra={"label": "内容长度上限"},
     )
-    filter_mode: str = Field(
+    filter_mode: Literal["fit", "raw", "bm25", "llm"] = Field(
         default="fit",
-        description="内容提取模式: fit(Readability)/raw/bm25/llm",
+        description="内容提取模式: fit(Readability)/raw(原DOM)/bm25(关键词)/llm(摘要)",
         json_schema_extra={"label": "提取模式"},
     )
     proxy: str = Field(
