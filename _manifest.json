@@ -1,5 +1,5 @@
 {
-  "manifest_version": 1,
+  "manifest_version": 2,
   "id": "LowValueTarget.maibot-web-retriever",
   "version": "0.1.0",
   "name": "maibot-web-retriever",
@@ -9,11 +9,10 @@
     "url": "https://github.com/LowValueTarget777"
   },
   "license": "MIT",
-  "homepage_url": "https://github.com/LowValueTarget777/maibot-web-retriever",
-  "repository_url": "https://github.com/LowValueTarget777/maibot-web-retriever",
   "urls": {
     "repository": "https://github.com/LowValueTarget777/maibot-web-retriever",
-    "homepage": "https://github.com/LowValueTarget777/maibot-web-retriever"
+    "homepage": "https://github.com/LowValueTarget777/maibot-web-retriever",
+    "issues": "https://github.com/LowValueTarget777/maibot-web-retriever/issues"
   },
   "categories": ["search", "web"],
   "host_application": {
@@ -33,6 +32,8 @@
   ],
   "capabilities": ["send.text"],
   "i18n": {
-    "default_locale": "zh-CN"
+    "default_locale": "zh-CN",
+    "locales_path": "i18n",
+    "supported_locales": ["zh-CN"]
   }
 }
