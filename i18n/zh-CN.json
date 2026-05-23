@@ -1,0 +1,35 @@
+{
+  "web_search": {
+    "name": "网页搜索",
+    "brief_description": "通过 SearXNG 元搜索引擎搜索互联网内容"
+  },
+  "web_fetch": {
+    "name": "网页抓取",
+    "brief_description": "通过 Crawl4AI 抓取并解析指定网页为 Markdown"
+  },
+  "search_command": {
+    "name": "搜索命令",
+    "brief_description": "使用 /search <关键词> 快速搜索网页"
+  },
+  "fetch_command": {
+    "name": "抓取命令",
+    "brief_description": "使用 /fetch <URL> 快速抓取网页内容"
+  },
+  "error": {
+    "searxng_unreachable": "无法连接到 SearXNG 搜索服务，请检查服务是否启动",
+    "searxng_timeout": "SearXNG 搜索超时，请稍后重试",
+    "crawl4ai_unreachable": "无法连接到 Crawl4AI 抓取服务，请检查服务是否启动",
+    "crawl4ai_timeout": "网页抓取超时，请稍后重试",
+    "invalid_url": "URL 格式无效，必须以 http:// 或 https:// 开头",
+    "empty_content": "网页内容为空或无法解析",
+    "content_truncated": "内容已截断",
+    "proxy_failed": "代理连接失败"
+  },
+  "message": {
+    "no_results": "未找到相关结果",
+    "searching": "正在搜索...",
+    "fetching": "正在抓取网页...",
+    "search_success": "搜索完成",
+    "fetch_success": "抓取完成"
+  }
+}

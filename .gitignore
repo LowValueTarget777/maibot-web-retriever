@@ -1,0 +1,56 @@
+# ============================================================
+# MaiBot 插件开发边界 — 严禁提交以下内容
+# 参考: https://docs.mai-mai.org/develop/plugin-dev/vibe-coding
+# ============================================================
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+venv/
+
+# 本地实验数据、日志、临时脚本（严禁提交）
+*.log
+logs/
+tmp/
+temp/
+test_*.py
+scratch*.py
+playground*.py
+
+# 个人密钥、token、cookie、数据库文件（严禁提交）
+*.key
+*.pem
+*.token
+*.secret
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+cookies.txt
+cookies.json
+
+# 私有配置（严禁提交）
+config.local.toml
+local.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# uv
+uv.lock
+copilot-instructions.md
