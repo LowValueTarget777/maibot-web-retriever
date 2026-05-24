@@ -10,7 +10,7 @@ send_references_to_user = true
 
 [search]
 # SearXNG 实例地址
-searxng_base_url = "http://localhost:8800"
+searxng_base_url = "http://192.168.1.9:8800"
 # 搜索类别开关
 search_general = true
 search_news = true
@@ -19,17 +19,19 @@ search_it = false
 # 单次搜索最大返回条数
 max_results = 5
 # 搜索超时时间（秒）
-search_timeout = 10
+search_timeout = 60
 # 安全搜索: 0=关闭, 1=中等, 2=严格
 safe_search = 0
 
 [fetch]
 # Crawl4AI REST API 地址（Docker 部署自带浏览器）
-crawl4ai_base_url = "http://localhost:11235"
+crawl4ai_base_url = "http://192.168.1.9:11235"
 fetch_timeout = 30
 max_content_length = 8000
+# 内容超长时是否调用 AI 总结代替截断
+summary_enabled = true
 filter_mode = "fit"
-proxy = ""
+proxy = "http://192.168.1.13:7890"
 proxy_username = ""
 proxy_password = ""
 

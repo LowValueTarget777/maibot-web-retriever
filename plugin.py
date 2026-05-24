@@ -1,8 +1,4 @@
-"""MaiBot 网页检索插件 — 基于 SearXNG + Crawl4AI
-
-提供 web_search 和 web_fetch 两个 Tool，以及 /search、/fetch 命令。
-搜索结果自动注入 Reply 上下文。
-"""
+"""MaiBot 网页检索插件 — 搜索 → 抓取 → 清洗 → 分块 → Map-Reduce 摘要"""
 
 import os as _os
 import sys as _sys
@@ -23,13 +19,45 @@ from .models import (
     fetch_error_dict,
     fetch_to_llm_dict,
     search_error_dict,
-    search_to_llm_dict,
 )
 from .searxng_client import (
     SearxNGClient,
     make_fetch_cache_key,
     make_search_cache_key,
 )
+
+PREFERRED_LLM_TASKS: tuple[str, str, str] = ("utils", "planner", "replyer")
+MAP_SUMMARY_MAX_CONCURRENCY = 3
+
+
+async def _generate_with_preferred_task_fallback(
+    llm_capability,
+    *,
+    prompt: str,
+    temperature: float = 0.3,
+    logger=None,
+) -> dict:
+    """按插件约定顺序调用 LLM：utils -> planner -> replyer。"""
+    last_result: dict | None = None
+
+    for task_name in PREFERRED_LLM_TASKS:
+        result = await llm_capability.generate(
+            prompt=prompt,
+            model=task_name,
+            temperature=temperature,
+        )
+        if result.get("success"):
+            return result
+
+        last_result = result
+        if logger is not None:
+            logger.warning(
+                "LLM 调用失败，准备回退到下一个任务: task=%s error=%s",
+                task_name,
+                result.get("error", ""),
+            )
+
+    return last_result or {"success": False, "response": "", "error": "所有预设模型任务均调用失败"}
 
 
 # ============================================================
@@ -98,8 +126,8 @@ class SearchConfig(PluginConfigBase):
         json_schema_extra={"label": "最大结果数"},
     )
     search_timeout: int = Field(
-        default=10,
-        description="搜索超时（秒）",
+        default=60,
+        description="搜索超时（秒），SearXNG 查询上游引擎可能较慢，建议 >=30",
         json_schema_extra={"label": "搜索超时"},
     )
     safe_search: Literal[0, 1, 2] = Field(
@@ -137,8 +165,13 @@ class FetchConfig(PluginConfigBase):
     )
     max_content_length: int = Field(
         default=8000,
-        description="返回内容最大字符数（超出截断）",
+        description="返回内容最大字符数（超出截断或触发摘要）",
         json_schema_extra={"label": "内容长度上限"},
+    )
+    summary_enabled: bool = Field(
+        default=False,
+        description="内容超长时调用 AI 总结代替截断",
+        json_schema_extra={"label": "启用 AI 摘要"},
     )
     filter_mode: Literal["fit", "raw", "bm25", "llm"] = Field(
         default="fit",
@@ -283,17 +316,74 @@ class WebRetrieverPlugin(MaiBotPlugin):
 
     # ========== Tool 组件 ==========
 
+    def _cache_enabled(self) -> bool:
+        return (
+            hasattr(self, "_cache")
+            and getattr(self.config.cache, "enable_cache", False)
+        )
+
+    def _cache_get(self, key: str):
+        if not self._cache_enabled():
+            return None
+        return self._cache.get(key)
+
+    def _cache_set(self, key: str, value) -> None:
+        if not self._cache_enabled():
+            return
+        self._cache.set(key, value, ttl=self.config.cache.cache_ttl)
+
+    async def _search_with_cache(
+        self,
+        *,
+        query: str,
+        categories: list[str],
+        max_results: int,
+        safe_search: int,
+    ):
+        cache_key = make_search_cache_key(
+            query=query,
+            categories=",".join(categories),
+            max_results=max_results,
+            show_references=self.config.plugin.show_references,
+        )
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            self.ctx.logger.info("Search cache hit: query=%s", query)
+            return cached
+
+        response = await self._searxng.search(
+            query=query,
+            categories=categories,
+            max_results=max_results,
+            safe_search=safe_search,
+        )
+        self._cache_set(cache_key, response)
+        return response
+
+    async def _fetch_with_cache(self, url: str):
+        cache_key = make_fetch_cache_key(
+            url=url,
+            show_references=self.config.plugin.show_references,
+        )
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            self.ctx.logger.info("Fetch cache hit: url=%s", url)
+            return cached
+
+        result = await self._crawler.fetch(url)
+        if not result.error_message:
+            self._cache_set(cache_key, result)
+        return result
+
     @Tool(
         "web_search",
-        brief_description="搜索网页内容",
+        brief_description="搜索网页并返回 AI 总结后的答案",
         detailed_description=(
-            "通过 SearXNG 元搜索引擎在互联网上搜索指定关键词，返回相关网页的"
-            "URL、标题和内容摘要。适合需要获取最新信息、查找资料或验证事实"
-            "的场景。\n"
+            "搜索 → 抓取 → 清洗 → 分块 → Map-Reduce 摘要 → 返回答案。\n"
             "参数说明：\n"
             "- query：string，必填。搜索关键词。\n"
-            "- max_results：int，可选。最大返回结果数，默认 5。\n"
-            "- categories：string，可选。搜索类别，如 general/news 等，默认 general。"
+            "- max_results：int，可选。搜索并抓取的结果数，默认 3。\n"
+            "- categories：string，可选。搜索类别，默认用配置。"
         ),
         parameters=[
             ToolParameterInfo(
@@ -305,141 +395,151 @@ class WebRetrieverPlugin(MaiBotPlugin):
             ToolParameterInfo(
                 name="max_results",
                 param_type=ToolParamType.INTEGER,
-                description="最大返回结果数，默认 5",
+                description="搜索并抓取的结果数，默认 3",
                 required=False,
             ),
             ToolParameterInfo(
                 name="categories",
                 param_type=ToolParamType.STRING,
-                description="搜索类别，如 general/news，默认 general",
+                description="搜索类别，默认用配置",
                 required=False,
             ),
         ],
     )
     async def handle_web_search(
-        self,
-        query: str,
-        max_results: int = 5,
-        categories: str = "",
-        **kwargs,
+        self, query: str, max_results: int = 3, categories: str = "", **kwargs,
     ):
-        """处理网页搜索工具调用"""
-        self.ctx.logger.info("搜索请求: query=%s, max_results=%d", query, max_results)
+        """流水线：搜索 → 抓取 → 清洗 → 分块 → Map-Reduce 摘要"""
+        import asyncio, time as _time
+        from urllib.parse import urlparse
+
+        from .content_cleaner import clean_markdown
+        from .content_chunker import chunk_content
+        from .summarizer import map_summarize, reduce_summarize
+        from .models import PageContent, PipelineResult
+
+        t0 = _time.monotonic()
+        debug: dict = {}
         stream_id = kwargs.get("stream_id", "")
+        cat_list = (
+            [c.strip() for c in categories.split(",") if c.strip()]
+            if categories else self.config.search.get_enabled_categories()
+        )
 
-        # 类别：优先用参数，否则用配置
-        if categories:
-            cat_list = [c.strip() for c in categories.split(",") if c.strip()]
-        else:
-            cat_list = self.config.search.get_enabled_categories()
-
-        # 1. 查缓存
-        cache_key = make_search_cache_key(query, ",".join(cat_list), max_results, self.config.plugin.show_references)
-        if self.config.cache.enable_cache:
-            cached = self._cache.get(cache_key)
-            if cached is not None:
-                self.ctx.logger.info("搜索命中缓存: %s", query)
-                return cached
-
-        # 2. 发送进度提示
-        if self.config.plugin.show_progress:
-            await self.ctx.send.text(f"🔍 正在搜索：{query}...", stream_id)
-
-        # 3. 执行搜索
-        response = await self._searxng.search(
+        # ── Step 1: 搜索 ──
+        search_resp = await self._search_with_cache(
             query=query,
             categories=cat_list,
             max_results=max_results,
             safe_search=self.config.search.safe_search,
         )
+        debug["search_ms"] = (_time.monotonic() - t0) * 1000
+        search_resp.results = search_resp.results[:max_results]
+        if not search_resp.results:
+            return {"success": False, "content": f"搜索「{query}」未找到结果。"}
 
-        # 4. 结果截断
-        response.results = response.results[:max_results]
-
-        if not response.results:
-            await self.ctx.send.text(
-                f"未找到与「{query}」相关的结果", stream_id
-            )
-            return search_to_llm_dict(response)
-
-        # 5. 写缓存 & 记录搜索内容
-        result_dict = search_to_llm_dict(response, self.config.plugin.show_references)
-        if self.config.cache.enable_cache:
-            self._cache.set(cache_key, result_dict, self.config.cache.cache_ttl)
-        self._last_search_content = result_dict.get("content", "")
-        if self.config.plugin.send_references_to_user:
-            self._last_reference_urls = [
-                {"title": r.title, "url": r.url} for r in response.results
-            ]
-
-        return result_dict
-
-    @Tool(
-        "web_fetch",
-        brief_description="抓取指定网页内容",
-        detailed_description=(
-            "抓取并解析指定 URL 的网页内容，返回 Markdown 格式的正文。"
-            "适合在搜索后进一步获取网页全文、阅读文章详情等场景。\n"
-            "参数说明：\n"
-            "- url：string，必填。要抓取的网页 URL（需以 http:// 或 https:// 开头）。\n"
-            "- filter_mode：string，可选。内容提取模式：fit(Readability)/raw/bm25/llm，默认 fit。"
-        ),
-        parameters=[
-            ToolParameterInfo(
-                name="url",
-                param_type=ToolParamType.STRING,
-                description="要抓取的网页 URL",
-                required=True,
-            ),
-            ToolParameterInfo(
-                name="filter_mode",
-                param_type=ToolParamType.STRING,
-                description="内容提取模式: fit/raw/bm25/llm，默认 fit",
-                required=False,
-            ),
-        ],
-    )
-    async def handle_web_fetch(
-        self,
-        url: str,
-        filter_mode: str = "fit",
-        **kwargs,
-    ):
-        """处理网页抓取工具调用"""
-        self.ctx.logger.info("抓取请求: url=%s, filter_mode=%s", url, filter_mode)
-        stream_id = kwargs.get("stream_id", "")
-
-        # 1. URL 校验
-        if not url.startswith(("http://", "https://")):
-            return fetch_error_dict(url, "URL 必须以 http:// 或 https:// 开头")
-
-        # 2. 查缓存
-        cache_key = make_fetch_cache_key(url, self.config.plugin.show_references)
-        if self.config.cache.enable_cache:
-            cached = self._cache.get(cache_key)
-            if cached is not None:
-                self.ctx.logger.info("抓取命中缓存: %s", url)
-                return cached
-
-        # 3. 发送进度提示
+        # ── Step 2 & 3: 并行抓取 ──
+        urls = [(r.url, r.title) for r in search_resp.results if r.url]
         if self.config.plugin.show_progress:
-            await self.ctx.send.text(f"📄 正在抓取网页：{url}...", stream_id)
+            await self.ctx.send.text(f"🔍 搜索到 {len(urls)} 条，抓取中...", stream_id)
 
-        # 4. 执行抓取
-        result = await self._crawler.fetch(url)
+        async def fetch_one(idx: int, url: str, title: str) -> PageContent:
+            r = await self._fetch_with_cache(url)
+            ok = r.error_message == ""
+            md_len = len(r.markdown_content) if r.markdown_content else 0
+            self.ctx.logger.info(
+                "抓取 [%d/%d] %s ok=%s md_len=%d err=%s",
+                idx, len(urls), url[:60], ok, md_len, r.error_message or "-",
+            )
+            return PageContent(
+                source_id=idx, url=url, title=title,
+                cleaned_md=r.markdown_content if ok else "",
+            )
 
-        # 5. 写缓存 & 返回
-        result_dict = fetch_to_llm_dict(result, self.config.plugin.show_references)
-        if self.config.cache.enable_cache and result.error_message == "":
-            self._cache.set(cache_key, result_dict, self.config.cache.cache_ttl)
-        if result.error_message == "":
-            self._last_fetch_content = result_dict.get("content", "")
-            if self.config.plugin.send_references_to_user:
-                self._last_reference_urls = [
-                    {"title": result.title, "url": result.url}
-                ]
+        pages: list[PageContent] = await asyncio.gather(
+            *[fetch_one(i+1, u, t) for i, (u, t) in enumerate(urls)]
+        )
+        debug["fetch_ms"] = (_time.monotonic() - t0) * 1000 - debug.get("search_ms", 0)
 
-        return result_dict
+        # ── Step 4: 清洗 ──
+        for p in pages:
+            if p.cleaned_md:
+                p.cleaned_md = clean_markdown(
+                    p.cleaned_md,
+                    max_content_chars=self.config.fetch.max_content_length,
+                )
+        valid_pages = [p for p in pages if p.cleaned_md]
+        if not valid_pages:
+            self.ctx.logger.warning("所有页面抓取失败或无内容: %d 个URL", len(pages))
+            for p in pages:
+                self.ctx.logger.warning("  [%d] %s cleaned=%d", p.source_id, p.url[:80], len(p.cleaned_md))
+            return {"success": False, "content": "所有网页抓取失败或内容为空。"}
+
+        # ── Step 5: 分块 ──
+        all_chunks = []
+        for p in valid_pages:
+            p.chunks = chunk_content(p.cleaned_md, p.source_id, p.title, p.url)
+            all_chunks.extend(p.chunks)
+        debug["chunks"] = len(all_chunks)
+
+        # ── Step 6: Map-Reduce 摘要 ──
+        if not self.config.fetch.summary_enabled:
+            # 不摘要 → 直接返回清洗后的内容
+            blocks = [f"搜索「{query}」共找到 {search_resp.total_count} 条，已抓取 {len(valid_pages)} 条：\n"]
+            for p in valid_pages:
+                blocks.append(f"## [{p.source_id}] {p.title}\n{p.cleaned_md[:3000]}\n")
+            self._last_fetch_content = "\n".join(blocks)
+            return {"success": True, "content": "\n".join(blocks), "query": query}
+
+        # Map: 每页摘要
+        async def _llm(prompt: str, temperature: float = 0.3) -> dict:
+            return await _generate_with_preferred_task_fallback(
+                self.ctx.llm,
+                prompt=prompt,
+                temperature=temperature,
+                logger=self.ctx.logger,
+            )
+
+        self.ctx.logger.info("Map 阶段: %d 个分块", len(all_chunks))
+        summaries = await map_summarize(
+            _llm,
+            query,
+            all_chunks,
+            self.ctx.logger,
+            max_concurrency=MAP_SUMMARY_MAX_CONCURRENCY,
+        )
+        debug["map_summaries"] = len(summaries)
+
+        if not summaries:
+            # Map 全部失败 → 回退到直接给清洗内容
+            blocks = [f"搜索「{query}」结果：\n"]
+            for p in valid_pages:
+                blocks.append(f"## [{p.source_id}] {p.title}\n{p.cleaned_md[:2000]}\n")
+            return {"success": True, "content": "\n".join(blocks), "query": query}
+
+        # Reduce: 合并
+        self.ctx.logger.info("Reduce 阶段: %d 条摘要", len(summaries))
+        answer = await reduce_summarize(_llm, query, summaries, self.ctx.logger)
+        debug["reduce_ms"] = (_time.monotonic() - t0) * 1000
+
+        if not answer:
+            answer = "\n\n".join(summaries)
+
+        # 来源
+        sources = []
+        seen = set()
+        for p in valid_pages:
+            if p.url not in seen:
+                seen.add(p.url)
+                domain = urlparse(p.url).netloc
+                sources.append({"id": p.source_id, "title": p.title, "url": p.url, "domain": domain})
+
+        result = PipelineResult(success=True, answer=answer, sources=sources, debug=debug)
+        rv = result.to_llm_dict()
+        self._last_fetch_content = answer
+        if self.config.plugin.send_references_to_user:
+            self._last_reference_urls = sources
+        return rv
 
     # ========== Command 组件 ==========
 
@@ -456,7 +556,7 @@ class WebRetrieverPlugin(MaiBotPlugin):
 
         await self.ctx.send.text(f"🔍 正在搜索：{query}...", stream_id)
 
-        response = await self._searxng.search(
+        response = await self._search_with_cache(
             query=query,
             categories=self.config.search.get_enabled_categories(),
             max_results=self.config.search.max_results,
@@ -498,7 +598,7 @@ class WebRetrieverPlugin(MaiBotPlugin):
 
         await self.ctx.send.text(f"📄 正在抓取：{url}...", stream_id)
 
-        result = await self._crawler.fetch(url)
+        result = await self._fetch_with_cache(url)
 
         if result.error_message:
             await self.ctx.send.text(
@@ -548,9 +648,12 @@ class WebRetrieverPlugin(MaiBotPlugin):
             if not isinstance(args, dict):
                 continue
 
-            # 1. 注入搜索结果到 AI 参考上下文
+            # 1. 注入搜索结果到 AI 参考上下文（限制长度防止撑爆回复）
             content = search_content or fetch_content
             if content:
+                max_ref_len = 3000
+                if len(content) > max_ref_len:
+                    content = content[:max_ref_len] + "\n\n[内容过长已截断，完整数据已在上方工具返回中]"
                 tag = "[搜索结果]" if search_content else "[网页内容]"
                 existing = str(args.get("reference_info", "") or "").strip()
                 injection = f"{tag}\n{content}\n（以上信息可作为回答参考）"

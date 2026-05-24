@@ -49,7 +49,7 @@ class SearxNGClient:
             response = await self._client.get("/search", params=params)
             response.raise_for_status()
             data = response.json()
-            return self._parse_response(data, query)
+            return self._parse_response(data, query, max_results=max_results)
         except httpx.TimeoutException:
             if self._logger:
                 self._logger.warning("SearXNG 搜索超时: %s", query)
@@ -89,11 +89,17 @@ class SearxNGClient:
             params["categories"] = ",".join(categories)
         return params
 
-    def _parse_response(self, data: dict, query: str) -> SearchResponse:
+    def _parse_response(
+        self,
+        data: dict,
+        query: str,
+        *,
+        max_results: int = 50,
+    ) -> SearchResponse:
         """解析 SearXNG JSON 响应"""
         raw_results = data.get("results", [])
         results = []
-        for item in raw_results[:50]:  # 最多取 50 条原始结果
+        for item in raw_results[: max(0, max_results)]:
             results.append(SearchResult(
                 url=item.get("url", ""),
                 title=item.get("title", ""),

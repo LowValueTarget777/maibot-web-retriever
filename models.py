@@ -137,3 +137,31 @@ def fetch_error_dict(url: str, message: str) -> dict:
         "url": url,
         "message": message,
     }
+
+
+@dataclass
+class PipelineResult:
+    """流水线最终输出"""
+    success: bool
+    answer: str = ""
+    sources: list[dict] = field(default_factory=list)
+    debug: dict = field(default_factory=dict)
+
+    def to_llm_dict(self) -> dict:
+        return {
+            "success": self.success,
+            "content": self.answer,
+            "sources": self.sources,
+            "debug": self.debug,
+        }
+
+
+@dataclass
+class PageContent:
+    """单页抓取+清洗后的内容"""
+    source_id: int
+    url: str
+    title: str
+    cleaned_md: str
+    chunks: list = field(default_factory=list)
+    summary: str = ""
