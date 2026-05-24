@@ -2,9 +2,9 @@
 enabled = true
 config_version = "1.0.0"
 # 搜索/抓取时是否发送进度提示
-show_progress = true
+show_progress = false
 # 是否将网页 URL 作为参考来源提供给 AI
-show_references = true
+show_references = false
 # 是否在回复末尾向用户发送参考来源链接
 send_references_to_user = true
 
@@ -17,9 +17,9 @@ search_news = true
 search_science = false
 search_it = false
 # 单次搜索最大返回条数
-max_results = 5
+max_results = 3
 # 搜索超时时间（秒）
-search_timeout = 60
+search_timeout = 30
 # 安全搜索: 0=关闭, 1=中等, 2=严格
 safe_search = 0
 

@@ -28,6 +28,17 @@ from .searxng_client import (
 
 PREFERRED_LLM_TASKS: tuple[str, str, str] = ("utils", "planner", "replyer")
 MAP_SUMMARY_MAX_CONCURRENCY = 3
+SAFE_SEARCH_OPTION_DESCRIPTIONS = {
+    0: "不过滤，结果最全",
+    1: "适度过滤，适合日常使用",
+    2: "严格过滤，结果会更保守",
+}
+FILTER_MODE_OPTION_DESCRIPTIONS = {
+    "fit": "推荐。尽量只保留网页正文",
+    "raw": "保留更多原始内容，适合排查抓取问题",
+    "bm25": "偏关键词筛选，适合目标明确的内容",
+    "llm": "依赖抓取端智能提取，通常不需要手动切换",
+}
 
 
 async def _generate_with_preferred_task_fallback(
@@ -66,74 +77,87 @@ async def _generate_with_preferred_task_fallback(
 
 class PluginSectionConfig(PluginConfigBase):
     """插件基础配置"""
-    __ui_label__ = "插件"
+    __ui_label__ = "基础设置"
     __ui_icon__ = "package"
     __ui_order__ = 0
 
-    enabled: bool = Field(default=True, description="是否启用插件")
-    config_version: str = Field(default="1.0.0", description="配置版本")
+    enabled: bool = Field(
+        default=True,
+        description="关闭后，这个插件不会参与搜索和网页抓取",
+        json_schema_extra={"label": "启用网页搜索", "x-widget": "switch"},
+    )
+    config_version: str = Field(
+        default="1.0.0",
+        description="用于兼容旧配置，通常不需要手动修改",
+        json_schema_extra={"label": "配置版本", "x-widget": "input", "advanced": True},
+    )
     show_progress: bool = Field(
         default=True,
-        description='搜索/抓取时是否发送进度提示（"正在搜索..."等）',
-        json_schema_extra={"label": "显示进度提示"},
+        description='搜索中、抓取中时先发一条提示，避免看起来像卡住了',
+        json_schema_extra={"label": "发送过程提示", "x-widget": "switch"},
     )
     show_references: bool = Field(
         default=True,
-        description="是否将网页 URL 作为参考来源提供给 AI",
-        json_schema_extra={"label": "AI 参考来源 URL"},
+        description="通常保持开启；只有你不想让 AI 看到原始来源地址时再关闭",
+        json_schema_extra={"label": "把来源链接也提供给 AI", "x-widget": "switch", "advanced": True},
     )
     send_references_to_user: bool = Field(
         default=True,
-        description="是否在回复末尾向用户发送参考来源链接",
-        json_schema_extra={"label": "向用户发送参考链接"},
+        description="适合需要让用户自己点开查看原网页时开启",
+        json_schema_extra={"label": "在回复后附上来源链接", "x-widget": "switch"},
     )
 
 
 class SearchConfig(PluginConfigBase):
     """SearXNG 搜索配置"""
-    __ui_label__ = "搜索"
+    __ui_label__ = "搜索服务"
     __ui_icon__ = "search"
     __ui_order__ = 1
 
     searxng_base_url: str = Field(
         default="http://192.168.1.9:8800",
-        description="SearXNG 实例地址",
-        json_schema_extra={"label": "SearXNG 地址"},
+        description="填你的 SearXNG 地址，例如 http://127.0.0.1:8800",
+        json_schema_extra={"label": "搜索服务地址", "x-widget": "input"},
     )
     search_general: bool = Field(
         default=True,
-        description="通用网页搜索",
-        json_schema_extra={"label": "通用网页"},
+        description="通常建议开启，用来搜索普通网页内容",
+        json_schema_extra={"label": "搜索普通网页", "x-widget": "switch", "advanced": True},
     )
     search_news: bool = Field(
         default=True,
-        description="新闻搜索",
-        json_schema_extra={"label": "新闻"},
+        description="想让结果更偏新闻资讯时再开启或保留开启",
+        json_schema_extra={"label": "搜索新闻", "x-widget": "switch", "advanced": True},
     )
     search_science: bool = Field(
         default=False,
-        description="学术搜索",
-        json_schema_extra={"label": "学术"},
+        description="只有明确需要论文、研究资料时再开启",
+        json_schema_extra={"label": "搜索学术内容", "x-widget": "switch", "advanced": True},
     )
     search_it: bool = Field(
         default=False,
-        description="IT 技术搜索",
-        json_schema_extra={"label": "IT 技术"},
+        description="只有明确需要技术资料、开发文档时再开启",
+        json_schema_extra={"label": "搜索技术内容", "x-widget": "switch", "advanced": True},
     )
     max_results: int = Field(
         default=5,
-        description="单次搜索最大返回条数",
-        json_schema_extra={"label": "最大结果数"},
+        description="建议 3-8。越大越慢，但参考信息更多",
+        json_schema_extra={"label": "每次最多参考几条网页", "x-widget": "input"},
     )
     search_timeout: int = Field(
         default=60,
-        description="搜索超时（秒），SearXNG 查询上游引擎可能较慢，建议 >=30",
-        json_schema_extra={"label": "搜索超时"},
+        description="搜索服务慢时可适当调大，通常不用改",
+        json_schema_extra={"label": "搜索等待时间（秒）", "x-widget": "input", "advanced": True},
     )
     safe_search: Literal[0, 1, 2] = Field(
         default=0,
-        description="安全搜索: 0=关闭, 1=中等, 2=严格",
-        json_schema_extra={"label": "安全搜索"},
+        description="通常保持关闭；只有你希望过滤敏感内容时再开启",
+        json_schema_extra={
+            "label": "过滤敏感内容",
+            "x-widget": "select",
+            "advanced": True,
+            "x-option-descriptions": SAFE_SEARCH_OPTION_DESCRIPTIONS,
+        },
     )
 
     def get_enabled_categories(self) -> list[str]:
@@ -149,72 +173,77 @@ class SearchConfig(PluginConfigBase):
 
 class FetchConfig(PluginConfigBase):
     """Crawl4AI 抓取配置"""
-    __ui_label__ = "抓取"
+    __ui_label__ = "网页内容"
     __ui_icon__ = "download"
     __ui_order__ = 2
 
     crawl4ai_base_url: str = Field(
         default="http://192.168.1.9:11235",
-        description="Crawl4AI REST API 地址（Docker 部署自带浏览器）",
-        json_schema_extra={"label": "Crawl4AI 地址"},
+        description="填你的 Crawl4AI 地址，例如 http://127.0.0.1:11235",
+        json_schema_extra={"label": "网页抓取服务地址", "x-widget": "input"},
     )
     fetch_timeout: int = Field(
         default=30,
-        description="抓取超时（秒）",
-        json_schema_extra={"label": "抓取超时"},
+        description="网页抓取很慢或偶尔超时时再调大",
+        json_schema_extra={"label": "抓取等待时间（秒）", "x-widget": "input", "advanced": True},
     )
     max_content_length: int = Field(
         default=8000,
-        description="返回内容最大字符数（超出截断或触发摘要）",
-        json_schema_extra={"label": "内容长度上限"},
+        description="越大越完整，但处理更慢。普通用户一般不用改",
+        json_schema_extra={"label": "单个网页最多读取多少内容", "x-widget": "input", "advanced": True},
     )
     summary_enabled: bool = Field(
         default=False,
-        description="内容超长时调用 AI 总结代替截断",
-        json_schema_extra={"label": "启用 AI 摘要"},
+        description="开启后，长网页会先做摘要，再交给 AI 使用。普通用户建议开启",
+        json_schema_extra={"label": "网页太长时自动总结", "x-widget": "switch"},
     )
     filter_mode: Literal["fit", "raw", "bm25", "llm"] = Field(
         default="fit",
-        description="内容提取模式: fit(Readability)/raw(原DOM)/bm25(关键词)/llm(摘要)",
-        json_schema_extra={"label": "提取模式"},
+        description="决定怎么从网页里提取正文。普通用户保持默认即可",
+        json_schema_extra={
+            "label": "网页正文提取方式",
+            "x-widget": "select",
+            "advanced": True,
+            "x-option-descriptions": FILTER_MODE_OPTION_DESCRIPTIONS,
+        },
     )
     proxy: str = Field(
         default="",
-        description="代理地址，如 http://proxy:8080，留空则不使用",
-        json_schema_extra={"label": "代理地址"},
+        description="只有你的抓取服务必须走代理时才需要填写",
+        json_schema_extra={"label": "代理地址", "x-widget": "input", "advanced": True},
     )
     proxy_username: str = Field(
         default="",
-        description="代理用户名（可选）",
-        json_schema_extra={"label": "代理用户名"},
+        description="只有代理要求登录时才需要填写",
+        json_schema_extra={"label": "代理用户名", "x-widget": "input", "advanced": True},
     )
     proxy_password: str = Field(
         default="",
-        description="代理密码（可选）",
-        json_schema_extra={"label": "代理密码"},
+        description="只有代理要求登录时才需要填写",
+        json_schema_extra={"label": "代理密码", "x-widget": "password", "advanced": True},
     )
 
 
 class CacheConfig(PluginConfigBase):
     """缓存配置"""
-    __ui_label__ = "缓存"
+    __ui_label__ = "缓存与加速"
     __ui_icon__ = "database"
     __ui_order__ = 3
 
     enable_cache: bool = Field(
         default=True,
-        description="是否启用内存缓存",
-        json_schema_extra={"label": "启用缓存"},
+        description="开启后，短时间内重复搜索相同内容会更快",
+        json_schema_extra={"label": "加速重复搜索", "x-widget": "switch"},
     )
     cache_ttl: int = Field(
         default=3600,
-        description="缓存过期时间（秒）",
-        json_schema_extra={"label": "缓存有效期"},
+        description="缓存结果保留多久，普通用户一般不用改",
+        json_schema_extra={"label": "缓存保留时间（秒）", "x-widget": "input", "advanced": True},
     )
     max_cache_entries: int = Field(
         default=100,
-        description="最大缓存条目数",
-        json_schema_extra={"label": "最大缓存数"},
+        description="最多缓存多少条搜索或抓取结果，普通用户一般不用改",
+        json_schema_extra={"label": "最多缓存多少条结果", "x-widget": "input", "advanced": True},
     )
 
 

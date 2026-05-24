@@ -14,6 +14,7 @@ wheels/
 # Virtual environments
 .venv/
 venv/
+config.example.toml
 
 # 本地实验数据、日志、临时脚本（严禁提交）
 *.log
@@ -24,6 +25,7 @@ test_*.py
 scratch*.py
 playground*.py
 config_back/
+tests/
 
 # 个人密钥、token、cookie、数据库文件（严禁提交）
 *.key
@@ -56,4 +58,6 @@ Thumbs.db
 uv.lock
 copilot-instructions.md
 
-
+#AI
+docs/
+AGENTS.md
