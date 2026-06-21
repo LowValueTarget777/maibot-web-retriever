@@ -229,7 +229,7 @@ class FetchConfig(PluginConfigBase):
         json_schema_extra={"label": "抓取网页全文", "x-widget": "switch"},
     )
     summary_enabled: bool = Field(
-        default=False,
+        default=True,
         description="开启后，长网页会先做摘要，再交给 AI 使用。普通用户建议开启",
         json_schema_extra={"label": "网页太长时自动总结", "x-widget": "switch"},
     )

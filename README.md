@@ -43,6 +43,8 @@ proxy = ""
 
 如果服务运行在其他机器，请改成你自己的地址，但不要把私网地址作为默认值提交回仓库。
 
+> 说明：仓库不提交 `config.toml`（它可能含 crawl4ai token，已被 `.gitignore`）。插件首次加载时 MaiBot 会按模型默认值自动生成 `config.toml`，之后在 WebUI 插件配置页修改即可；也可参考随仓库提供的 `config.example.toml`。
+
 ## 配置示例
 
 ```toml

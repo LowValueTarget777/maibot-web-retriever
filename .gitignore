@@ -14,7 +14,6 @@ wheels/
 # Virtual environments
 .venv/
 venv/
-config.example.toml
 
 # 本地实验数据、日志、临时脚本（严禁提交）
 *.log
