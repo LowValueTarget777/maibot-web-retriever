@@ -84,7 +84,7 @@ cache_ttl = 3600
 max_cache_entries = 100
 
 [permission]
-# 权限模式：所有人 / 白名单 / 黑名单
+# 权限模式：白名单（仅名单内可用）/ 黑名单（名单内禁用、其余放行；留空=所有人可用）
 mode = "黑名单"
 admin_qq_list = []
 user_qq_list = []

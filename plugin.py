@@ -289,9 +289,9 @@ class PermissionConfig(PluginConfigBase):
     __ui_icon__ = "shield"
     __ui_order__ = 4
 
-    mode: Literal["所有人", "白名单", "黑名单"] = Field(
+    mode: Literal["白名单", "黑名单"] = Field(
         default="黑名单",
-        description="所有人=不限制；白名单=仅名单内可用；黑名单=名单内禁用、其余放行（名单留空=所有人可用）",
+        description="白名单=仅名单内可用；黑名单=名单内禁用、其余放行（黑名单留空=所有人可用）",
         json_schema_extra={"label": "权限模式", "x-widget": "select"},
     )
     admin_qq_list: list[str] = Field(
@@ -605,8 +605,6 @@ class WebRetrieverPlugin(MaiBotPlugin):
         users = {self._norm_qq(x) for x in perm.user_qq_list}
         users.discard("")
         mode = perm.mode
-        if mode == "所有人":
-            return True, ""
         if mode == "白名单":
             return (True, "") if qq in users else (False, "不在白名单")
         if mode == "黑名单":
