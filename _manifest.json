@@ -29,7 +29,7 @@
       "version_spec": ">=0.27.0"
     }
   ],
-  "capabilities": ["send.text", "llm.generate"],
+  "capabilities": ["send.text", "llm.generate", "llm.tool"],
   "i18n": {
     "default_locale": "zh-CN",
     "locales_path": "i18n",

@@ -41,8 +41,13 @@ cookies.txt
 cookies.json
 
 # 私有配置（严禁提交）
+# config.toml 含 crawl4ai token，由宿主按模型默认值为每个用户本地生成，不入库
+config.toml
 config.local.toml
 local.toml
+
+# 本地后端部署（含 crawl4ai token 与 SearXNG secret_key，严禁提交）
+deploy/
 
 # IDE
 .vscode/
