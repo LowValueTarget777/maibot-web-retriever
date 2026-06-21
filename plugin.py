@@ -501,6 +501,31 @@ class WebRetrieverPlugin(MaiBotPlugin):
         if self._threat_feed_signature() != getattr(self, "_threat_feed_sig", ()):
             await self._start_threat_feed()
 
+    def get_webui_config_schema(self, **kwargs):
+        """把配置页渲染成「一节一个标签页」（基础/搜索/网页内容/缓存/权限/安全）。
+        SDK 默认 layout=auto 是单页长条；这里改成 tabs（CLAUDE.md §13 验证模式）。"""
+        try:
+            schema = super().get_webui_config_schema(**kwargs)
+        except Exception:
+            return {}  # 永不让配置页 500
+        if isinstance(schema, dict) and isinstance(schema.get("sections"), dict):
+            sections = schema["sections"]
+            ordered = sorted(sections.items(), key=lambda kv: (kv[1] or {}).get("order", 0))
+            schema["layout"] = {
+                "type": "tabs",
+                "tabs": [
+                    {
+                        "id": name,
+                        "title": (sec or {}).get("title") or name,
+                        "icon": (sec or {}).get("icon"),
+                        "order": (sec or {}).get("order", 0),
+                        "sections": [name],
+                    }
+                    for name, sec in ordered
+                ],
+            }
+        return schema
+
 
     # ========== Tool 组件 ==========
 
