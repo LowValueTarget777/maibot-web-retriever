@@ -1,0 +1,71 @@
+# 网页检索插件配置示例
+# 说明：插件首次加载时 MaiBot 会按模型默认值自动生成 config.toml；
+# 本文件仅作参考。请勿把含真实 token 的 config.toml 提交进仓库。
+
+[plugin]
+enabled = true
+config_version = "1.1.0"
+# 联网时是否先发一条「搜索中」提示（默认关，让麦麦自然回应）
+show_progress = false
+# 来源链接披露：按需发送 / 主动发送 / 从不发送
+disclosure_mode = "按需发送"
+# 注入给 AI 当参考的检索内容上限字数
+inject_max_chars = 1500
+
+[search]
+# SearXNG 实例地址
+searxng_base_url = "http://127.0.0.1:8800"
+search_general = true
+search_news = true
+search_science = false
+search_it = false
+max_results = 3
+search_timeout = 30
+# 安全搜索：0=关闭 1=中等 2=严格
+safe_search = 0
+
+[fetch]
+# Crawl4AI REST API 地址
+crawl4ai_base_url = "http://127.0.0.1:11235"
+# Crawl4AI 的 API Token（容器设了 CRAWL4AI_API_TOKEN 才需要填，与之一致）
+crawl4ai_token = ""
+fetch_timeout = 30
+max_content_length = 8000
+# 抓取网页全文（关闭=只用搜索摘要，更快）
+fetch_full_text = true
+# 网页太长时先做摘要再交给 AI
+summary_enabled = true
+filter_mode = "fit"
+proxy = ""
+proxy_username = ""
+proxy_password = ""
+
+[cache]
+enable_cache = true
+cache_ttl = 3600
+max_cache_entries = 100
+
+[permission]
+# 权限模式：白名单 / 黑名单（黑名单留空=所有人可用）
+mode = "黑名单"
+admin_qq_list = []
+user_qq_list = []
+# 是否对麦麦自动联网搜索也限制
+restrict_tool = false
+reply_on_deny = true
+
+[security]
+# 拦截 .exe/.apk/.zip 等可执行/下载文件链接
+block_download_links = true
+extra_blocked_extensions = []
+# 域名黑名单（含子域名，支持 *.evil.com）
+blocked_domains = []
+# 域名白名单：豁免黑名单/恶意库的误判
+allowed_domains = []
+# 公开恶意域名库（拉取失败 fail-open，不拦只记日志）
+threat_feed_enabled = true
+threat_feed_urls = ["https://urlhaus.abuse.ch/downloads/hostfile/"]
+threat_feed_refresh_hours = 24
+# 提示词注入处理：删除注入行 / 拒绝整页 / 仅记录不删 / 关闭
+injection_action = "删除注入行"
+injection_extra_keywords = []
