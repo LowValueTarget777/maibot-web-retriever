@@ -1,7 +1,9 @@
 # MaiBot Web Retriever
 
 基于 SearXNG 和 Crawl4AI 的网页检索插件，为 MaiBot 提供搜索、抓取、清洗和摘要能力。
-
+**重要**
+**建议到  麦麦设置-后处理-高级设置 里把enable_overflow_return_all打开**
+**否则搜索返回的长内容会被后处理成  “不知道”**
 
 ## 依赖服务
 
