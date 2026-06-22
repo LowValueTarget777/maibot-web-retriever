@@ -31,6 +31,7 @@ class Crawl4AIClient:
         proxy: Optional[str] = None,
         proxy_username: Optional[str] = None,
         proxy_password: Optional[str] = None,
+        api_token: Optional[str] = None,
         logger: Optional[Logger] = None,
     ) -> None:
         self._base_url = base_url.strip().rstrip("/")
@@ -40,12 +41,19 @@ class Crawl4AIClient:
         self._proxy = proxy.strip() if proxy else None
         self._proxy_username = proxy_username
         self._proxy_password = proxy_password
+        self._api_token = api_token.strip() if api_token else None
         self._logger = logger
+
+        # crawl4ai 设了 CRAWL4AI_API_TOKEN 后会绑 0.0.0.0 并要求 Bearer 鉴权；
+        # 未设 token 时容器只绑回环、外部根本连不通，所以这里必须带上 token 头
+        headers = {"User-Agent": "MaiBot-WebRetriever/1.0"}
+        if self._api_token:
+            headers["Authorization"] = f"Bearer {self._api_token}"
 
         self._http = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=httpx.Timeout(timeout),
-            headers={"User-Agent": "MaiBot-WebRetriever/1.0"},
+            headers=headers,
         )
 
     # ------------------------------------------------------------------

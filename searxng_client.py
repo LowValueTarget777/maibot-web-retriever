@@ -118,17 +118,14 @@ class SearxNGClient:
         )
 
 
-def make_search_cache_key(
-    query: str, categories: str, max_results: int, show_references: bool = True
-) -> str:
+def make_search_cache_key(query: str, categories: str, max_results: int) -> str:
     """生成搜索缓存键"""
-    raw = f"{query}|{categories}|{max_results}|ref={show_references}"
+    raw = f"{query}|{categories}|{max_results}"
     h = hashlib.sha256(raw.encode()).hexdigest()[:16]
     return f"search:{h}"
 
 
-def make_fetch_cache_key(url: str, show_references: bool = True) -> str:
+def make_fetch_cache_key(url: str) -> str:
     """生成抓取缓存键"""
-    raw = f"{url}|ref={show_references}"
-    h = hashlib.sha256(raw.encode()).hexdigest()[:16]
+    h = hashlib.sha256(url.encode()).hexdigest()[:16]
     return f"fetch:{h}"

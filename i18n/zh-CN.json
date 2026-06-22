@@ -1,19 +1,27 @@
 {
   "web_search": {
     "name": "网页搜索",
-    "brief_description": "通过 SearXNG 元搜索引擎搜索互联网内容"
+    "brief_description": "通过 SearXNG 元搜索引擎搜索互联网内容并整理事实素材"
   },
-  "web_fetch": {
-    "name": "网页抓取",
-    "brief_description": "通过 Crawl4AI 抓取并解析指定网页为 Markdown"
+  "query_sources": {
+    "name": "查来源",
+    "brief_description": "用户追问来源/可信度时，取最近一次检索的网页来源"
   },
-  "search_command": {
+  "fetch_url": {
+    "name": "读取链接",
+    "brief_description": "读取用户发来的网页链接，返回正文供 AI 描述"
+  },
+  "search": {
     "name": "搜索命令",
     "brief_description": "使用 /search <关键词> 快速搜索网页"
   },
-  "fetch_command": {
+  "fetch": {
     "name": "抓取命令",
     "brief_description": "使用 /fetch <URL> 快速抓取网页内容"
+  },
+  "sources": {
+    "name": "出处命令",
+    "brief_description": "使用 /出处 调取最近一次检索的来源链接"
   },
   "error": {
     "searxng_unreachable": "无法连接到 SearXNG 搜索服务，请检查服务是否启动",
