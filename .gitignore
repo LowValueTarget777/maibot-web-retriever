@@ -20,11 +20,10 @@ venv/
 logs/
 tmp/
 temp/
-test_*.py
+/test_*.py
 scratch*.py
 playground*.py
 config_back/
-tests/
 
 # 个人密钥、token、cookie、数据库文件（严禁提交）
 *.key

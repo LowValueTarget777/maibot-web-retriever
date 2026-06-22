@@ -105,7 +105,7 @@ blocked_domains = []
 # 域名白名单：豁免黑名单与恶意库的误判（仍受内网/下载文件拦截）
 allowed_domains = []
 
-# 公开恶意域名库（拉取失败则该层不拦、只记日志）
+# 公开恶意域名库（首次拉取失败则该层不拦；刷新失败会继续使用上次成功加载的列表）
 threat_feed_enabled = true
 # 可填多个地址（多源/镜像）
 threat_feed_urls = ["https://urlhaus.abuse.ch/downloads/hostfile/"]
@@ -127,7 +127,7 @@ injection_extra_keywords = []
 4. **公开恶意域名库**：自动拉取 urlhaus 等（可填多个 `threat_feed_urls`）恶意/钓鱼域名库拦截。
 5. **提示词注入处理**：网页内容若含「忽略上述指令」「你现在是…」等注入文本，按 `injection_action` 处理（删除该行 / 拒绝整页 / 仅记录 / 关闭），可用 `injection_extra_keywords` 加自定义触发词。该层对**搜索抓取的网页、读链接、搜索摘要**三条路径都生效。
 
-> 注：第 4 层需联网拉取域名库，拉取失败会 fail-open（该层不拦、只记日志），其余层不受影响。web_search 自动抓取的搜索结果也会先过这套 URL 拦截。
+> 注：第 4 层需联网拉取域名库。首次拉取失败时没有可用列表，该层不会拦截、只记录日志；后续刷新失败时会继续使用上一次成功加载的列表，其余层不受影响。web_search 自动抓取的搜索结果也会先过这套 URL 拦截。
 
 ## 能力与命令
 
@@ -152,7 +152,7 @@ injection_extra_keywords = []
 - **联网很慢**：`[fetch].fetch_full_text=false` 可只用搜索摘要、跳过抓全文，轻问题（天气/新闻标题）更快。
 - **来源链接太频繁/太少**：调 `[plugin].disclosure_mode`（按需发送 / 主动发送 / 从不发送）。
 - **正常网页内容被误删**：把 `[security].injection_action` 调成「仅记录不删」观察日志，或用 `allowed_domains` 白名单豁免。
-- **恶意域名库没生效**：它需联网拉取 `threat_feed_urls`，拉不到会 fail-open（不拦、只记日志）；可换可达的镜像地址。
+- **恶意域名库没生效**：它需联网拉取 `threat_feed_urls`；首次拉不到时没有可用列表，不会拦截、只记日志；如果之前已成功加载过列表，刷新失败会继续沿用旧列表。可换可达的镜像地址。
 
 ## AI 协作提示词
 

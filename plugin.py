@@ -23,8 +23,8 @@ from .searxng_client import (
     make_search_cache_key,
 )
 
-# 只用 fast non-thinking 任务，避免 replyer（可能是 thinking 模型）撞 ~30s RPC 硬超时
-PREFERRED_LLM_TASKS: tuple[str, str] = ("utils", "planner")
+# 插件内摘要只走这三个任务，按顺序回退：utils -> planner -> replyer
+PREFERRED_LLM_TASKS: tuple[str, str, str] = ("utils", "planner", "replyer")
 MAP_SUMMARY_MAX_CONCURRENCY = 3
 SAFE_SEARCH_OPTION_DESCRIPTIONS = {
     0: "不过滤，结果最全",
@@ -69,7 +69,7 @@ async def _generate_with_preferred_task_fallback(
     max_tokens: int = 800,
     logger=None,
 ) -> dict:
-    """按插件约定顺序调用 LLM：utils -> planner。带 max_tokens 上限以压低单次延迟。"""
+    """按插件约定顺序调用 LLM：utils -> planner -> replyer。"""
     last_result: dict | None = None
 
     for task_name in PREFERRED_LLM_TASKS:
@@ -623,11 +623,24 @@ class WebRetrieverPlugin(MaiBotPlugin):
         return True, f"{cmd} denied: {reason}", 1
 
     def _check_tool_permission(self, kwargs: dict) -> tuple[bool, str]:
-        """工具级权限：restrict_tool 关闭则放行；开启则从 message 解析发言者 QQ 判定。"""
+        """工具级权限：restrict_tool 关闭则放行；开启则按发言者 QQ 判定。"""
         if not self.config.permission.restrict_tool:
             return True, ""
-        uinfo = ((kwargs.get("message") or {}).get("message_info") or {}).get("user_info") or {}
-        return self._check_permission(str(uinfo.get("user_id") or ""))
+
+        raw_user_id = kwargs.get("user_id")
+        if not raw_user_id:
+            message = kwargs.get("message") or {}
+            if isinstance(message, dict):
+                uinfo = ((message.get("message_info") or {}).get("user_info") or {})
+                raw_user_id = uinfo.get("user_id")
+            else:
+                message_info = getattr(message, "message_info", None)
+                user_info = getattr(message_info, "user_info", None)
+                raw_user_id = getattr(user_info, "user_id", "")
+
+        if not self._norm_qq(raw_user_id):
+            return False, "无法识别用户"
+        return self._check_permission(str(raw_user_id or ""))
 
     @staticmethod
     def _is_internal_url(url: str) -> bool:
@@ -715,7 +728,7 @@ class WebRetrieverPlugin(MaiBotPlugin):
                 return None   # 白名单豁免黑名单/恶意库（内网/下载已在上面拦过）
             if hosts & self._domain_set(sec.blocked_domains):
                 return "命中域名黑名单"
-            if hosts & self._threat_domains:
+            if sec.threat_feed_enabled and hosts & self._threat_domains:
                 return "命中恶意域名库"
         return None
 
@@ -760,8 +773,10 @@ class WebRetrieverPlugin(MaiBotPlugin):
                 self.ctx.logger.warning("取消旧恶意域名库任务异常: %s", exc)
         self._threat_task = None
         self._threat_feed_sig = self._threat_feed_signature()
-        if self.config.security.threat_feed_enabled:
-            self._threat_task = asyncio.create_task(self._threat_feed_loop())
+        if not self.config.security.threat_feed_enabled:
+            self._threat_domains = set()
+            return
+        self._threat_task = asyncio.create_task(self._threat_feed_loop())
 
     async def _threat_feed_loop(self) -> None:
         """定时拉取恶意域名库；拉取失败 fail-open（保留旧集/空集），记日志。"""
